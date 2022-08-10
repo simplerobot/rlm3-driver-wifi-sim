@@ -4,17 +4,24 @@
 #include <cstring>
 
 
-static volatile size_t g_recv_buffer_count = 0;
-static char g_recv_buffer_data[32];
-static RLM3_Task g_recv_thread = nullptr;
-
-
-extern void RLM3_WIFI_Receive_Callback(uint8_t data)
+struct LinkRecvInfo
 {
-	if (g_recv_buffer_count < sizeof(g_recv_buffer_data))
-		g_recv_buffer_data[g_recv_buffer_count] = data;
-	g_recv_buffer_count++;
-	RLM3_GiveFromISR(g_recv_thread);
+	volatile size_t count;
+	char buffer[32];
+	volatile RLM3_Task task;
+};
+static LinkRecvInfo g_link_recv_info[RLM3_WIFI_LINK_COUNT];
+
+
+extern void RLM3_WIFI_Receive_Callback(size_t link_id, uint8_t data)
+{
+	ASSERT(link_id < RLM3_WIFI_LINK_COUNT);
+	auto& link_info = g_link_recv_info[link_id];
+
+	if (link_info.count < sizeof(link_info.buffer))
+		link_info.buffer[link_info.count] = data;
+	link_info.count++;
+	RLM3_GiveFromISR(link_info.task);
 }
 
 
@@ -164,21 +171,21 @@ TEST_CASE(RLM3_WIFI_NetworkDisconnect_NotInit)
 TEST_CASE(RLM3_WIFI_ServerConnect_HappyCase)
 {
 	SIM_RLM3_WIFI_SetNetwork("test-ssid", "test-password");
-	SIM_RLM3_WIFI_SetServer("test-server", "test-service");
+	SIM_RLM3_WIFI_SetServer(0, "test-server", "test-service");
 	RLM3_WIFI_Init();
 	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
 
-	ASSERT(!RLM3_WIFI_IsServerConnected());
-	ASSERT(RLM3_WIFI_ServerConnect("test-server", "test-service"));
-	ASSERT(RLM3_WIFI_IsServerConnected());
+	ASSERT(!RLM3_WIFI_IsServerConnected(0));
+	ASSERT(RLM3_WIFI_ServerConnect(0, "test-server", "test-service"));
+	ASSERT(RLM3_WIFI_IsServerConnected(0));
 }
 
 TEST_CASE(RLM3_WIFI_ServerConnect_NoNetwork)
 {
-	SIM_RLM3_WIFI_SetServer("test-server", "test-service");
+	SIM_RLM3_WIFI_SetServer(0, "test-server", "test-service");
 	RLM3_WIFI_Init();
 
-	ASSERT_ASSERTS(RLM3_WIFI_ServerConnect("test-server", "test-service"));
+	ASSERT_ASSERTS(RLM3_WIFI_ServerConnect(0, "test-server", "test-service"));
 }
 
 TEST_CASE(RLM3_WIFI_ServerConnect_NotSet)
@@ -187,40 +194,40 @@ TEST_CASE(RLM3_WIFI_ServerConnect_NotSet)
 	RLM3_WIFI_Init();
 	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
 
-	ASSERT(!RLM3_WIFI_ServerConnect("test-server", "test-service"));
-	ASSERT(!RLM3_WIFI_IsServerConnected());
+	ASSERT(!RLM3_WIFI_ServerConnect(0, "test-server", "test-service"));
+	ASSERT(!RLM3_WIFI_IsServerConnected(0));
 }
 
 TEST_CASE(RLM3_WIFI_ServerConnect_WrongServer)
 {
 	SIM_RLM3_WIFI_SetNetwork("test-ssid", "test-password");
-	SIM_RLM3_WIFI_SetServer("test-server", "test-service");
+	SIM_RLM3_WIFI_SetServer(0, "test-server", "test-service");
 	RLM3_WIFI_Init();
 	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
 
-	ASSERT_ASSERTS(RLM3_WIFI_ServerConnect("test-server-wrong", "test-service"));
+	ASSERT_ASSERTS(RLM3_WIFI_ServerConnect(0, "test-server-wrong", "test-service"));
 }
 
 TEST_CASE(RLM3_WIFI_ServerConnect_WrongService)
 {
 	SIM_RLM3_WIFI_SetNetwork("test-ssid", "test-password");
-	SIM_RLM3_WIFI_SetServer("test-server", "test-service");
+	SIM_RLM3_WIFI_SetServer(0, "test-server", "test-service");
 	RLM3_WIFI_Init();
 	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
 
-	ASSERT_ASSERTS(RLM3_WIFI_ServerConnect("test-server", "test-service-wrong"));
+	ASSERT_ASSERTS(RLM3_WIFI_ServerConnect(0, "test-server", "test-service-wrong"));
 }
 
 TEST_CASE(RLM3_WIFI_ServerDisconnect_HappyCase)
 {
 	SIM_RLM3_WIFI_SetNetwork("test-ssid", "test-password");
-	SIM_RLM3_WIFI_SetServer("test-server", "test-service");
+	SIM_RLM3_WIFI_SetServer(0, "test-server", "test-service");
 	RLM3_WIFI_Init();
 	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
-	RLM3_WIFI_ServerConnect("test-server", "test-service");
+	RLM3_WIFI_ServerConnect(0, "test-server", "test-service");
 
-	RLM3_WIFI_ServerDisconnect();
-	ASSERT(!RLM3_WIFI_IsServerConnected());
+	RLM3_WIFI_ServerDisconnect(0);
+	ASSERT(!RLM3_WIFI_IsServerConnected(0));
 }
 
 TEST_CASE(RLM3_WIFI_ServerDisconnect_NotConnected)
@@ -229,101 +236,101 @@ TEST_CASE(RLM3_WIFI_ServerDisconnect_NotConnected)
 	RLM3_WIFI_Init();
 	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
 
-	ASSERT_ASSERTS(RLM3_WIFI_ServerDisconnect());
+	ASSERT_ASSERTS(RLM3_WIFI_ServerDisconnect(0));
 }
 
 TEST_CASE(RLM3_WIFI_ServerDisconnect_NetworkDisconnect)
 {
 	SIM_RLM3_WIFI_SetNetwork("test-ssid", "test-password");
-	SIM_RLM3_WIFI_SetServer("test-server", "test-service");
+	SIM_RLM3_WIFI_SetServer(0, "test-server", "test-service");
 	RLM3_WIFI_Init();
 	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
-	RLM3_WIFI_ServerConnect("test-server", "test-service");
+	RLM3_WIFI_ServerConnect(0, "test-server", "test-service");
 
 	RLM3_WIFI_NetworkDisconnect();
-	ASSERT(!RLM3_WIFI_IsServerConnected());
+	ASSERT(!RLM3_WIFI_IsServerConnected(0));
 }
 
 TEST_CASE(RLM3_WIFI_ServerDisconnect_DeInit)
 {
 	SIM_RLM3_WIFI_SetNetwork("test-ssid", "test-password");
-	SIM_RLM3_WIFI_SetServer("test-server", "test-service");
+	SIM_RLM3_WIFI_SetServer(0, "test-server", "test-service");
 	RLM3_WIFI_Init();
 	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
-	RLM3_WIFI_ServerConnect("test-server", "test-service");
+	RLM3_WIFI_ServerConnect(0, "test-server", "test-service");
 
 	RLM3_WIFI_Deinit();
-	ASSERT(!RLM3_WIFI_IsServerConnected());
+	ASSERT(!RLM3_WIFI_IsServerConnected(0));
 }
 
 TEST_CASE(RLM3_WIFI_Transmit_HappyCase)
 {
 	SIM_RLM3_WIFI_SetNetwork("test-ssid", "test-password");
-	SIM_RLM3_WIFI_SetServer("test-server", "test-service");
-	SIM_RLM3_WIFI_Transmit("abcd");
+	SIM_RLM3_WIFI_SetServer(0, "test-server", "test-service");
+	SIM_RLM3_WIFI_Transmit(0, "abcd");
 
 	RLM3_WIFI_Init();
 	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
-	RLM3_WIFI_ServerConnect("test-server", "test-service");
+	RLM3_WIFI_ServerConnect(0, "test-server", "test-service");
 
-	ASSERT(RLM3_WIFI_Transmit((const uint8_t*)"abcd", 4));
+	ASSERT(RLM3_WIFI_Transmit(0, (const uint8_t*)"abcd", 4));
 }
 
 TEST_CASE(RLM3_WIFI_Transmit_NotSet)
 {
 	SIM_RLM3_WIFI_SetNetwork("test-ssid", "test-password");
-	SIM_RLM3_WIFI_SetServer("test-server", "test-service");
+	SIM_RLM3_WIFI_SetServer(0, "test-server", "test-service");
 
 	RLM3_WIFI_Init();
 	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
-	RLM3_WIFI_ServerConnect("test-server", "test-service");
+	RLM3_WIFI_ServerConnect(0, "test-server", "test-service");
 
-	ASSERT(!RLM3_WIFI_Transmit((const uint8_t*)"abcd", 4));
+	ASSERT(!RLM3_WIFI_Transmit(0, (const uint8_t*)"abcd", 4));
 }
 
 TEST_CASE(RLM3_WIFI_Transmit_NotActive)
 {
-	SIM_RLM3_WIFI_Transmit("abcd");
+	SIM_RLM3_WIFI_Transmit(0, "abcd");
 
-	ASSERT_ASSERTS(RLM3_WIFI_Transmit((const uint8_t*)"abcd", 4));
+	ASSERT_ASSERTS(RLM3_WIFI_Transmit(0, (const uint8_t*)"abcd", 4));
 }
 
 TEST_CASE(RLM3_WIFI_Transmit_DataMismatch)
 {
 	SIM_RLM3_WIFI_SetNetwork("test-ssid", "test-password");
-	SIM_RLM3_WIFI_SetServer("test-server", "test-service");
-	SIM_RLM3_WIFI_Transmit("abcd");
+	SIM_RLM3_WIFI_SetServer(0, "test-server", "test-service");
+	SIM_RLM3_WIFI_Transmit(0, "abcd");
 
 	RLM3_WIFI_Init();
 	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
-	RLM3_WIFI_ServerConnect("test-server", "test-service");
+	RLM3_WIFI_ServerConnect(0, "test-server", "test-service");
 
-	ASSERT_ASSERTS(RLM3_WIFI_Transmit((const uint8_t*)"abce", 4));
+	ASSERT_ASSERTS(RLM3_WIFI_Transmit(0, (const uint8_t*)"abce", 4));
 }
 
 TEST_CASE(RLM3_WIFI_Transmit_SizeMismatch)
 {
 	SIM_RLM3_WIFI_SetNetwork("test-ssid", "test-password");
-	SIM_RLM3_WIFI_SetServer("test-server", "test-service");
-	SIM_RLM3_WIFI_Transmit("abcd");
+	SIM_RLM3_WIFI_SetServer(0, "test-server", "test-service");
+	SIM_RLM3_WIFI_Transmit(0, "abcd");
 
 	RLM3_WIFI_Init();
 	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
-	RLM3_WIFI_ServerConnect("test-server", "test-service");
+	RLM3_WIFI_ServerConnect(0, "test-server", "test-service");
 
-	ASSERT_ASSERTS(RLM3_WIFI_Transmit((const uint8_t*)"abcde", 5));
+	ASSERT_ASSERTS(RLM3_WIFI_Transmit(0, (const uint8_t*)"abcde", 5));
 }
 
 TEST_CASE(RLM3_WIFI_Transmit_InvalidSizeZero)
 {
 	SIM_RLM3_WIFI_SetNetwork("test-ssid", "test-password");
-	SIM_RLM3_WIFI_SetServer("test-server", "test-service");
+	SIM_RLM3_WIFI_SetServer(0, "test-server", "test-service");
 
 	RLM3_WIFI_Init();
 	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
-	RLM3_WIFI_ServerConnect("test-server", "test-service");
+	RLM3_WIFI_ServerConnect(0, "test-server", "test-service");
 
-	ASSERT_ASSERTS(RLM3_WIFI_Transmit((const uint8_t*)"", 0));
+	ASSERT_ASSERTS(RLM3_WIFI_Transmit(0, (const uint8_t*)"", 0));
 }
 
 TEST_CASE(RLM3_WIFI_Transmit_InvalidSizeTooBig)
@@ -333,37 +340,77 @@ TEST_CASE(RLM3_WIFI_Transmit_InvalidSizeTooBig)
 		buffer[i] = 'a';
 
 	SIM_RLM3_WIFI_SetNetwork("test-ssid", "test-password");
-	SIM_RLM3_WIFI_SetServer("test-server", "test-service");
-	SIM_RLM3_WIFI_Transmit((const char*)buffer);
+	SIM_RLM3_WIFI_SetServer(0, "test-server", "test-service");
+	SIM_RLM3_WIFI_Transmit(0, (const char*)buffer);
 
 	RLM3_WIFI_Init();
 	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
-	RLM3_WIFI_ServerConnect("test-server", "test-service");
+	RLM3_WIFI_ServerConnect(0, "test-server", "test-service");
 
-	ASSERT_ASSERTS(RLM3_WIFI_Transmit(buffer, 1025));
+	ASSERT_ASSERTS(RLM3_WIFI_Transmit(0, buffer, 1025));
 }
 
 TEST_CASE(RLM3_WIFI_Receive_HappyCase)
 {
 	SIM_RLM3_WIFI_SetNetwork("test-ssid", "test-password");
-	SIM_RLM3_WIFI_SetServer("test-server", "test-service");
-	SIM_RLM3_WIFI_Receive("abc");
-	SIM_RLM3_WIFI_Receive("def");
+	SIM_RLM3_WIFI_SetServer(0, "test-server", "test-service");
+	SIM_RLM3_WIFI_Receive(0, "abc");
+	SIM_RLM3_WIFI_Receive(0, "def");
 
 	RLM3_WIFI_Init();
 	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
-	RLM3_WIFI_ServerConnect("test-server", "test-service");
+	RLM3_WIFI_ServerConnect(0, "test-server", "test-service");
 
-	g_recv_buffer_count = 0;
-	g_recv_thread = RLM3_GetCurrentTask();
+	auto& link_recv_info = g_link_recv_info[0];
+	link_recv_info.task = RLM3_GetCurrentTask();
 
-	while (g_recv_buffer_count == 0)
+	while (link_recv_info.count == 0)
 		RLM3_Take();
-	ASSERT(g_recv_buffer_count == 3);
-	ASSERT(std::strncmp(g_recv_buffer_data, "abc", 3) == 0);
-	while (g_recv_buffer_count == 3)
+	ASSERT(link_recv_info.count == 3);
+	ASSERT(std::strncmp(link_recv_info.buffer, "abc", 3) == 0);
+	while (link_recv_info.count == 3)
 		RLM3_Take();
-	ASSERT(g_recv_buffer_count == 6);
-	ASSERT(std::strncmp(g_recv_buffer_data, "abcdef", 6) == 0);
+	ASSERT(link_recv_info.count == 6);
+	ASSERT(std::strncmp(link_recv_info.buffer, "abcdef", 6) == 0);
 }
 
+TEST_CASE(RLM3_WIFI_ReceiveMultiple_HappyCase)
+{
+	SIM_RLM3_WIFI_SetNetwork("test-ssid", "test-password");
+	SIM_RLM3_WIFI_SetServer(0, "test-server", "test-service");
+	SIM_RLM3_WIFI_Receive(0, "abc");
+	SIM_RLM3_WIFI_Receive(0, "def");
+	SIM_RLM3_WIFI_SetServer(1, "test-server-b", "test-service-b");
+	SIM_RLM3_WIFI_Receive(1, "uvw");
+	SIM_RLM3_WIFI_Receive(1, "xyz");
+
+	RLM3_WIFI_Init();
+	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
+	RLM3_WIFI_ServerConnect(0, "test-server", "test-service");
+	RLM3_WIFI_ServerConnect(1, "test-server-b", "test-service-b");
+
+	g_link_recv_info[1].task = RLM3_GetCurrentTask();
+
+	while (g_link_recv_info[1].count == 0)
+		RLM3_Take();
+	ASSERT(g_link_recv_info[1].count == 3);
+	ASSERT(std::strncmp(g_link_recv_info[1].buffer, "uvw", 3) == 0);
+	while (g_link_recv_info[1].count == 3)
+		RLM3_Take();
+	ASSERT(g_link_recv_info[1].count == 6);
+	ASSERT(std::strncmp(g_link_recv_info[1].buffer, "uvwxyz", 6) == 0);
+
+	g_link_recv_info[0].task = RLM3_GetCurrentTask();
+
+	ASSERT(g_link_recv_info[0].count == 6);
+	ASSERT(std::strncmp(g_link_recv_info[0].buffer, "abcdef", 6) == 0);
+}
+
+TEST_SETUP(WIFI_TEST_SETUP)
+{
+	for (auto& i : g_link_recv_info)
+	{
+		i.count = 0;
+		i.task = nullptr;
+	}
+}
