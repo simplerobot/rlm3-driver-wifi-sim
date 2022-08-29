@@ -294,6 +294,19 @@ TEST_CASE(RLM3_WIFI_Transmit_HappyCase)
 	ASSERT(RLM3_WIFI_Transmit(0, (const uint8_t*)"abcd", 4));
 }
 
+TEST_CASE(RLM3_WIFI_Transmit2_HappyCase)
+{
+	SIM_WIFI_SetNetwork("test-ssid", "test-password");
+	SIM_WIFI_SetServer(0, "test-server", "test-service");
+	SIM_WIFI_Transmit(0, "abcdefg");
+
+	RLM3_WIFI_Init();
+	RLM3_WIFI_NetworkConnect("test-ssid", "test-password");
+	RLM3_WIFI_ServerConnect(0, "test-server", "test-service");
+
+	ASSERT(RLM3_WIFI_Transmit2(0, (const uint8_t*)"abcd", 4, (const uint8_t*)"efg", 3));
+}
+
 TEST_CASE(RLM3_WIFI_Transmit_NotSet)
 {
 	SIM_WIFI_SetNetwork("test-ssid", "test-password");

@@ -197,6 +197,37 @@ extern bool RLM3_WIFI_Transmit(size_t link_id, const uint8_t* data, size_t size)
 	return true;
 }
 
+extern bool RLM3_WIFI_Transmit2(size_t link_id, const uint8_t* data_a, size_t size_a, const uint8_t* data_b, size_t size_b)
+{
+	ASSERT(link_id < RLM3_WIFI_LINK_COUNT);
+	ASSERT(g_is_active);
+	ASSERT(g_is_network_connected || g_is_local_network_enabled);
+	auto& s = g_server_settings[link_id];
+	ASSERT(s.is_connected);
+	ASSERT(size_a > 0 && size_a <= 1024);
+	ASSERT(size_b > 0 && size_b <= 1024);
+	ASSERT(size_a + size_b <= 1024);
+	if (s.transmit_queue.empty())
+		return false;
+	for (size_t i = 0; i < size_a; i++)
+	{
+		ASSERT(!s.transmit_queue.empty());
+		uint8_t expected_transmit_byte = s.transmit_queue.front();
+		s.transmit_queue.pop();
+		uint8_t actual_transmit_byte = data_a[i];
+		ASSERT(actual_transmit_byte == expected_transmit_byte);
+	}
+	for (size_t i = 0; i < size_b; i++)
+	{
+		ASSERT(!s.transmit_queue.empty());
+		uint8_t expected_transmit_byte = s.transmit_queue.front();
+		s.transmit_queue.pop();
+		uint8_t actual_transmit_byte = data_b[i];
+		ASSERT(actual_transmit_byte == expected_transmit_byte);
+	}
+	return true;
+}
+
 extern __attribute__((weak)) void RLM3_WIFI_Receive_Callback(uint8_t data)
 {
 	// DO NOT MODIFIY THIS FUNCTION.  Override it by declaring a non-weak version in your project files.
